@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kelvin-Helmholtz Instability | claude-exp</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .sim-page {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 3rem 1.5rem 5rem;
+    }
+
+    .sim-page h1 {
+      font-size: clamp(1.6rem, 4vw, 2.4rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 0.75rem;
+    }
+
+    .sim-desc {
+      color: var(--muted);
+      font-size: 0.95rem;
+      max-width: 65ch;
+      margin-bottom: 2rem;
+    }
+
+    .canvas-wrap {
+      position: relative;
+      display: inline-block;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    #sim {
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      width: 512px;
+      height: 512px;
+    }
+
+    .sim-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-top: 1.25rem;
+      flex-wrap: wrap;
+    }
+
+    .sim-controls .btn {
+      font-size: 0.85rem;
+      padding: 0.5rem 1.1rem;
+    }
+
+    .sim-stat {
+      color: var(--muted);
+      font-size: 0.8rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .color-btns {
+      display: flex;
+      gap: 0.4rem;
+      margin-left: auto;
+    }
+
+    .color-btn {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    .color-btn.active {
+      border-color: #fff;
+    }
+
+    @media (max-width: 560px) {
+      #sim { width: 320px; height: 320px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <nav>
+      <a class="logo" href="index.html" style="text-decoration:none">claude-exp</a>
+      <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="simulation.html" style="color:var(--text)">Simulation</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <div class="sim-page">
+      <h1>Kelvin-Helmholtz Instability</h1>
+      <p class="sim-desc">
+        Two fluid layers flowing in opposite directions. Small perturbations at the interface
+        amplify and roll into characteristic spiraling vortices — seen in clouds, ocean currents,
+        and the atmospheres of planets.
+      </p>
+
+      <div class="canvas-wrap">
+        <canvas id="sim" width="128" height="128"></canvas>
+      </div>
+
+      <div class="sim-controls">
+        <button class="btn" id="pauseBtn">Pause</button>
+        <button class="btn" id="restartBtn">Restart</button>
+        <span class="sim-stat" id="stepLabel">step 0</span>
+        <div class="color-btns">
+          <button class="color-btn active" id="c0" style="background:linear-gradient(135deg,#0a0832,#00eed4)" title="Ocean"></button>
+          <button class="color-btn" id="c1" style="background:linear-gradient(135deg,#0a0005,#ffcc00)" title="Fire"></button>
+          <button class="color-btn" id="c2" style="background:linear-gradient(135deg,#050010,#ff80ff)" title="Nebula"></button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <p>Built with GitHub Pages · <a href="https://github.com/cyberface/claude-exp">Source</a></p>
+  </footer>
+
+  <script>
+    // Fluid simulation — 2D incompressible Navier-Stokes via Jos Stam's stable fluids method.
+    // Modified for Kelvin-Helmholtz instability with periodic x BCs and free-slip y walls.
+
+    const N    = 128;
+    const VISC = 1e-6;
+    const DT   = 0.005;
+    const ITER = 4;
+    const SPF  = 2;  // simulation steps per animation frame
+    const SZ   = (N + 2) * (N + 2);
+
+    const IX = (i, j) => i + (N + 2) * j;
+
+    const u    = new Float32Array(SZ);
+    const v    = new Float32Array(SZ);
+    const u0   = new Float32Array(SZ);
+    const v0   = new Float32Array(SZ);
+    const dens = new Float32Array(SZ);
+    const den0 = new Float32Array(SZ);
+
+    // --- Boundary conditions: periodic in x, free-slip walls in y ---
+    function setBnd(b, x) {
+      for (let i = 1; i <= N; i++) {
+        x[IX(i, 0)]   = b === 2 ? -x[IX(i, 1)]   : x[IX(i, 1)];
+        x[IX(i, N+1)] = b === 2 ? -x[IX(i, N)]   : x[IX(i, N)];
+      }
+      for (let j = 0; j <= N + 1; j++) {
+        x[IX(0,   j)] = x[IX(N,   j)];
+        x[IX(N+1, j)] = x[IX(1,   j)];
+      }
+      x[IX(0,   0)]   = 0.5 * (x[IX(1, 0)]   + x[IX(0,   1)]);
+      x[IX(N+1, 0)]   = 0.5 * (x[IX(N, 0)]   + x[IX(N+1, 1)]);
+      x[IX(0,   N+1)] = 0.5 * (x[IX(1, N+1)] + x[IX(0,   N)]);
+      x[IX(N+1, N+1)] = 0.5 * (x[IX(N, N+1)] + x[IX(N+1, N)]);
+    }
+
+    function linSolve(b, x, x0, a, c) {
+      const inv = 1.0 / c;
+      for (let k = 0; k < ITER; k++) {
+        for (let j = 1; j <= N; j++)
+          for (let i = 1; i <= N; i++)
+            x[IX(i,j)] = (x0[IX(i,j)] + a*(x[IX(i+1,j)] + x[IX(i-1,j)] + x[IX(i,j+1)] + x[IX(i,j-1)])) * inv;
+        setBnd(b, x);
+      }
+    }
+
+    function diffuse(b, x, x0) {
+      const a = DT * VISC * N * N;
+      linSolve(b, x, x0, a, 1 + 4 * a);
+    }
+
+    function advect(b, dst, src, ux, uy) {
+      const dt0 = DT * N;
+      for (let j = 1; j <= N; j++) {
+        for (let i = 1; i <= N; i++) {
+          let px = i - dt0 * ux[IX(i, j)];
+          let py = j - dt0 * uy[IX(i, j)];
+
+          // Periodic wrap in x
+          px = ((px - 0.5) % N + N) % N + 0.5;
+          // Clamp y to walls
+          py = Math.max(0.5, Math.min(N + 0.5, py));
+
+          const i0 = px | 0, i1 = i0 + 1;
+          const j0 = py | 0, j1 = j0 + 1;
+          const s1 = px - i0, s0 = 1 - s1;
+          const t1 = py - j0, t0 = 1 - t1;
+
+          dst[IX(i,j)] =
+            s0 * (t0 * src[IX(i0,j0)] + t1 * src[IX(i0,j1)]) +
+            s1 * (t0 * src[IX(i1,j0)] + t1 * src[IX(i1,j1)]);
+        }
+      }
+      setBnd(b, dst);
+    }
+
+    function project(ux, uy, p, div) {
+      for (let j = 1; j <= N; j++)
+        for (let i = 1; i <= N; i++) {
+          div[IX(i,j)] = -0.5 * (ux[IX(i+1,j)] - ux[IX(i-1,j)] + uy[IX(i,j+1)] - uy[IX(i,j-1)]) / N;
+          p[IX(i,j)] = 0;
+        }
+      setBnd(0, div); setBnd(0, p);
+      linSolve(0, p, div, 1, 4);
+      for (let j = 1; j <= N; j++)
+        for (let i = 1; i <= N; i++) {
+          ux[IX(i,j)] -= 0.5 * N * (p[IX(i+1,j)] - p[IX(i-1,j)]);
+          uy[IX(i,j)] -= 0.5 * N * (p[IX(i,j+1)] - p[IX(i,j-1)]);
+        }
+      setBnd(1, ux); setBnd(2, uy);
+    }
+
+    function simStep() {
+      // Velocity: diffuse then advect then project
+      u0.set(u); diffuse(1, u, u0);
+      v0.set(v); diffuse(2, v, v0);
+      project(u, v, u0, v0);
+
+      u0.set(u); v0.set(v);
+      advect(1, u, u0, u0, v0);
+      advect(2, v, v0, u0, v0);
+      project(u, v, u0, v0);
+
+      // Density: advect only
+      den0.set(dens);
+      advect(0, dens, den0, u, v);
+      for (let i = 0; i < SZ; i++) dens[i] = Math.max(0, Math.min(1, dens[i]));
+    }
+
+    // --- Initialise shear flow with sinusoidal perturbation ---
+    function init() {
+      u.fill(0); v.fill(0); u0.fill(0); v0.fill(0);
+      dens.fill(0); den0.fill(0);
+
+      const U = 1.5, w = 0.04, y1 = 0.25, y2 = 0.75;
+      const k = 3, A = 0.06;
+
+      for (let j = 1; j <= N; j++) {
+        const yf = j / (N + 1);
+        for (let i = 1; i <= N; i++) {
+          const xf = i / (N + 1);
+          const th1 = Math.tanh((yf - y1) / w);
+          const th2 = Math.tanh((yf - y2) / w);
+
+          // Smooth two-layer shear profile
+          u[IX(i,j)] = U * (th1 - th2 - 1);
+          dens[IX(i,j)] = 0.5 * (th1 - th2);
+
+          // Sinusoidal perturbation + noise near each interface
+          const g1 = Math.exp(-Math.pow(yf - y1, 2) / (2 * w * w));
+          const g2 = Math.exp(-Math.pow(yf - y2, 2) / (2 * w * w));
+          v[IX(i,j)] = (A * Math.sin(k * 2 * Math.PI * xf) + A * 0.15 * (Math.random() - 0.5)) * (g1 + g2);
+        }
+      }
+      stepCount = 0;
+    }
+
+    // --- Rendering ---
+    const canvas  = document.getElementById('sim');
+    const ctx     = canvas.getContext('2d');
+    const offscr  = document.createElement('canvas');
+    offscr.width  = N;
+    offscr.height = N;
+    const octx    = offscr.getContext('2d');
+    const imgData = octx.createImageData(N, N);
+    const px      = imgData.data;
+
+    const PALETTES = [
+      [[8, 10, 45],  [0, 238, 212]],   // Ocean
+      [[12, 2, 5],   [255, 200, 30]],   // Fire
+      [[5, 0, 18],   [255, 130, 255]],  // Nebula
+    ];
+
+    let palette = PALETTES[0];
+
+    function render() {
+      const [c0, c1] = palette;
+      for (let j = 1; j <= N; j++) {
+        for (let i = 1; i <= N; i++) {
+          const d = dens[IX(i, j)];
+          const base = ((j - 1) * N + (i - 1)) * 4;
+          px[base]   = c0[0] + d * (c1[0] - c0[0]) | 0;
+          px[base+1] = c0[1] + d * (c1[1] - c0[1]) | 0;
+          px[base+2] = c0[2] + d * (c1[2] - c0[2]) | 0;
+          px[base+3] = 255;
+        }
+      }
+      octx.putImageData(imgData, 0, 0);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(offscr, 0, 0, N, N);
+    }
+
+    // --- Animation loop ---
+    let paused = false, stepCount = 0, rafId;
+
+    function loop() {
+      if (!paused) {
+        for (let s = 0; s < SPF; s++) { simStep(); stepCount++; }
+        render();
+        document.getElementById('stepLabel').textContent = `step ${stepCount}`;
+      }
+      rafId = requestAnimationFrame(loop);
+    }
+
+    // --- Controls ---
+    document.getElementById('pauseBtn').addEventListener('click', function () {
+      paused = !paused;
+      this.textContent = paused ? 'Play' : 'Pause';
+    });
+
+    document.getElementById('restartBtn').addEventListener('click', () => {
+      init();
+      if (paused) { paused = false; document.getElementById('pauseBtn').textContent = 'Pause'; }
+    });
+
+    PALETTES.forEach((_, idx) => {
+      document.getElementById('c' + idx).addEventListener('click', function () {
+        palette = PALETTES[idx];
+        document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
+      });
+    });
+
+    init();
+    loop();
+  </script>
+</body>
+</html>
