@@ -246,7 +246,7 @@
       const U = 2.0, w = 0.03, y1 = 0.25, y2 = 0.75;
       const k = K_MODES[kIdx];
       kIdx = (kIdx + 1) % K_MODES.length;
-      const A = 0.18;
+      const A = 0.25;
 
       for (let j = 1; j <= N; j++) {
         const yf = j / (N + 1);
@@ -290,36 +290,25 @@
     let palette = PALETTES[0];
 
     function render() {
-      const [c0, c1] = palette;
       for (let j = 1; j <= N; j++) {
         for (let i = 1; i <= N; i++) {
-          const d = dens[IX(i, j)];
-
-          // Vorticity: ∂v/∂x − ∂u/∂y — highlights spinning structures
+          // Pure vorticity visualisation: ω = ∂v/∂x − ∂u/∂y
           const vort = (v[IX(i+1,j)] - v[IX(i-1,j)]) - (u[IX(i,j+1)] - u[IX(i,j-1)]);
-          // Saturating map so extreme values don't wash out detail
-          const vNorm = Math.tanh(vort * 0.4); // −1 to +1
-
-          // Base colour from density
-          let r = c0[0] + d * (c1[0] - c0[0]);
-          let g = c0[1] + d * (c1[1] - c0[1]);
-          let b = c0[2] + d * (c1[2] - c0[2]);
-
-          // Warm glow on positive vorticity cores, cool glow on negative
-          if (vNorm > 0) {
-            r += vNorm * 110;
-            g += vNorm * 60;
-            b += vNorm * 10;
-          } else {
-            r += (-vNorm) * 20;
-            g += (-vNorm) * 40;
-            b += (-vNorm) * 130;
-          }
+          const vn   = Math.max(-1, Math.min(1, vort / 3.0));
+          const mag  = Math.pow(Math.abs(vn), 0.55); // gamma for contrast
 
           const base = ((j - 1) * N + (i - 1)) * 4;
-          px[base]   = Math.min(255, r) | 0;
-          px[base+1] = Math.min(255, g) | 0;
-          px[base+2] = Math.min(255, b) | 0;
+          if (vn > 0) {
+            // Counterclockwise → orange / amber
+            px[base]   = mag * 255 | 0;
+            px[base+1] = mag * 120 | 0;
+            px[base+2] = mag * 10  | 0;
+          } else {
+            // Clockwise → blue / cyan
+            px[base]   = mag * 10  | 0;
+            px[base+1] = mag * 130 | 0;
+            px[base+2] = mag * 255 | 0;
+          }
           px[base+3] = 255;
         }
       }
@@ -328,35 +317,13 @@
       ctx.drawImage(offscr, 0, 0, N, N);
     }
 
-    // --- Continuous weak forcing to keep instability alive ---
-    function addForcing() {
-      const k = K_MODES[(kIdx + K_MODES.length - 1) % K_MODES.length];
-      const A = 0.004;
-      const y1 = 0.25, y2 = 0.75;
-      for (let i = 1; i <= N; i++) {
-        const xf = i / (N + 1);
-        const f = A * Math.sin(k * 2 * Math.PI * xf + stepCount * 0.03);
-        for (let dj = -1; dj <= 1; dj++) {
-          const j1 = Math.round(y1 * (N + 1)) + dj;
-          const j2 = Math.round(y2 * (N + 1)) + dj;
-          const w = Math.exp(-dj * dj);
-          if (j1 >= 1 && j1 <= N) v[IX(i, j1)] += f * w;
-          if (j2 >= 1 && j2 <= N) v[IX(i, j2)] += f * w;
-        }
-      }
-    }
-
     // --- Animation loop ---
     let paused = false, stepCount = 0, rafId;
-    const AUTO_RESTART = 550;
+    const AUTO_RESTART = 1000;
 
     function loop() {
       if (!paused) {
-        for (let s = 0; s < SPF; s++) {
-          addForcing();
-          simStep();
-          stepCount++;
-        }
+        for (let s = 0; s < SPF; s++) { simStep(); stepCount++; }
         if (stepCount >= AUTO_RESTART) init();
         render();
         document.getElementById('stepLabel').textContent = `step ${stepCount}`;
