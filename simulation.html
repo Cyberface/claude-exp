@@ -133,7 +133,7 @@
     const N    = 128;
     const VISC = 1e-6;
     const DT   = 0.005;
-    const ITER = 4;
+    const ITER = 20;
     const SPF  = 2;  // simulation steps per animation frame
     const SZ   = (N + 2) * (N + 2);
 
@@ -240,8 +240,8 @@
       u.fill(0); v.fill(0); u0.fill(0); v0.fill(0);
       dens.fill(0); den0.fill(0);
 
-      const U = 1.5, w = 0.04, y1 = 0.25, y2 = 0.75;
-      const k = 3, A = 0.06;
+      const U = 2.0, w = 0.03, y1 = 0.25, y2 = 0.75;
+      const k = 2, A = 0.15;
 
       for (let j = 1; j <= N; j++) {
         const yf = j / (N + 1);
