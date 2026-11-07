@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chirp — Sing the Gravitational Wave</title>
+  <link rel="icon" href="data:," />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f0f0f;
+      --surface: #1a1a1a;
+      --border: #2a2a2a;
+      --text: #e8e8e8;
+      --muted: #888;
+      --accent: #7c6af7;
+      --good: #4ade80;
+    }
+
+    html { -webkit-text-size-adjust: 100%; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 16px;
+    }
+    header a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 700;
+    }
+
+    main {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 1.5rem 16px 3rem;
+    }
+
+    h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+    .lede { color: var(--muted); margin-bottom: 1.25rem; }
+
+    .stage {
+      position: relative;
+      background: #111;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 320px;
+    }
+    .big {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: clamp(4rem, 18vw, 8rem);
+      font-weight: 800;
+      color: #fff;
+      text-shadow: 0 0 30px var(--accent);
+      pointer-events: none;
+    }
+    .big:empty { display: none; }
+
+    .readout {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+      margin: 1rem 0;
+    }
+    .readout div {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .label {
+      display: block;
+      color: var(--muted);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .value {
+      font-size: 1.35rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .sub { color: var(--muted); font-size: 0.85rem; }
+
+    .status {
+      min-height: 2.5em;
+      color: var(--text);
+      margin-bottom: 0.75rem;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 1rem;
+    }
+    button {
+      font: inherit;
+      font-weight: 600;
+      color: #fff;
+      background: var(--accent);
+      border: 0;
+      border-radius: 10px;
+      padding: 12px 18px;
+      cursor: pointer;
+      min-width: 180px;
+    }
+    button.secondary {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      min-width: 0;
+    }
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    label.toggle {
+      color: var(--muted);
+      font-size: 0.9rem;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      cursor: pointer;
+    }
+
+    .scores {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 1.5rem;
+    }
+    .scores div {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      text-align: center;
+    }
+    .scores b {
+      display: block;
+      font-size: 1.5rem;
+      color: var(--good);
+      font-variant-numeric: tabular-nums;
+    }
+
+    details {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 16px;
+      color: var(--muted);
+    }
+    details summary { cursor: pointer; color: var(--text); font-weight: 600; }
+    details p { margin-top: 0.6rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="index.html">← claude-exp</a>
+  </header>
+
+  <main>
+    <h1>Chirp</h1>
+    <p class="lede">
+      Merging black holes send out gravitational waves whose pitch rises faster and faster as they spiral together.
+      The real GW150914 event swept from about 35 Hz to 250 Hz in roughly a fifth of a second. Here it's stretched
+      into a few seconds you can sing. Listen, then match the rising pitch with your voice.
+    </p>
+
+    <div class="stage">
+      <canvas id="plot" aria-label="Chirp pitch chart"></canvas>
+      <div class="big" id="big"></div>
+    </div>
+
+    <div class="readout">
+      <div><span class="label">Target</span><span class="value" id="tgt">—</span></div>
+      <div><span class="label">You</span><span class="value" id="hz">—</span><span class="sub" id="note">no voice yet</span></div>
+      <div><span class="label">Accuracy now</span><span class="value" id="acc">—</span><span class="sub" id="verdict"></span></div>
+    </div>
+
+    <p class="status" id="status" role="status">Press “Listen to the chirp” to start.</p>
+
+    <div class="controls">
+      <button id="primary">▶ Listen to the chirp</button>
+      <button id="replay" class="secondary" disabled>↻ Replay</button>
+      <label class="toggle"><input type="checkbox" id="octaves" checked /> Forgive octave slips</label>
+    </div>
+
+    <div class="scores">
+      <div><span class="label">This round</span><b id="roundPts">0</b></div>
+      <div><span class="label">Total</span><b id="total">0</b></div>
+      <div><span class="label">Best round</span><b id="best">0</b></div>
+    </div>
+
+    <details>
+      <summary>How scoring works</summary>
+      <p>
+        Your microphone is analysed about 60 times a second to find the pitch you're singing. For every moment of
+        the 4-second chirp, the closer your pitch is to the target curve, the more accuracy you earn: a perfect
+        match is 100%, and you get nothing once you're 1.5 semitones away. Silence counts as zero, so you need to
+        sing the whole way through. A round is worth up to 1000 points.
+      </p>
+      <p>
+        "Forgive octave slips" folds your pitch by whole octaves before comparing, so singing the same note an
+        octave high or low still counts. Turn it off if you want a stricter challenge. Your microphone audio never
+        leaves your browser.
+      </p>
+    </details>
+  </main>
+
+  <script>
+    (() => {
+      'use strict';
+
+      // ----- Settings -------------------------------------------------------
+      const T = 4.0;                       // seconds per chirp
+      const TOL = 150;                     // cents off target that gives 0% accuracy
+      const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+
+      // ----- DOM ------------------------------------------------------------
+      const $ = (id) => document.getElementById(id);
+      const canvas = $('plot');
+      const g = canvas.getContext('2d');
+      const el = {
+        primary: $('primary'), replay: $('replay'), status: $('status'), big: $('big'),
+        tgt: $('tgt'), hz: $('hz'), note: $('note'), acc: $('acc'), verdict: $('verdict'),
+        roundPts: $('roundPts'), total: $('total'), best: $('best'), octaves: $('octaves'),
+      };
+
+      // ----- State ----------------------------------------------------------
+      let audioCtx = null, analyser = null, micBuf = null, micStream = null;
+      let round = null;                    // { fLow, fHigh, T }
+      let mode = 'idle';                   // idle | listening | ready | countdown | singing | results
+      let startAt = 0, singStart = 0, countdownEnd = 0, lastNow = 0;
+      let trace = [];                      // { t, pd, acc } — pd = pitch folded into target octave
+      let sumAcc = 0, roundPoints = 0, lastAcc = 0;
+      const totals = { points: 0, rounds: 0, best: loadBest() };
+
+      // ----- Storage (best-effort) ------------------------------------------
+      function loadBest() {
+        try { return Number(localStorage.getItem('chirp-best')) || 0; } catch (e) { return 0; }
+      }
+      function saveBest(v) {
+        try { localStorage.setItem('chirp-best', String(v)); } catch (e) { /* ignore */ }
+      }
+
+      // ----- Physics-inspired chirp ----------------------------------------
+      // Frequency rises as f(t) = fLow * (1 - K t/T)^(-3/8), the post-Newtonian
+      // inspiral shape, where K is chosen so that f(T) = fHigh.
+      function targetFreq(t, r) {
+        const K = 1 - Math.pow(r.fLow / r.fHigh, 8 / 3);
+        const x = Math.max(1e-9, 1 - K * Math.min(t, r.T) / r.T);
+        return r.fLow * Math.pow(x, -3 / 8);
+      }
+
+      function newRound() {
+        const fLow = 110 + Math.random() * 70;        // 110–180 Hz
+        const ratio = 1.8 + Math.random() * 0.8;      // 1.8–2.6× sweep
+        return { fLow, fHigh: fLow * ratio, T };
+      }
+
+      function buildChirp(r) {
+        const sr = audioCtx.sampleRate;
+        const n = Math.floor(r.T * sr);
+        const buf = audioCtx.createBuffer(1, n, sr);
+        const d = buf.getChannelData(0);
+        const TWO_PI = 2 * Math.PI;
+        const fade = Math.floor(0.08 * sr);
+        let phase = 0;
+        for (let i = 0; i < n; i++) {
+          const f = targetFreq(i / sr, r);
+          phase = (phase + TWO_PI * f / sr) % TWO_PI;
+          const s = Math.sin(phase) + 0.3 * Math.sin(2 * phase);
+          const grow = 0.25 + 0.75 * Math.pow(i / n, 2);   // gets louder towards "merger"
+          const env = Math.min(1, i / fade, (n - i) / fade);
+          d[i] = 0.35 * grow * env * s / 1.3;
+        }
+        return buf;
+      }
+
+      // ----- Audio ----------------------------------------------------------
+      function ensureAudio() {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+
+      async function ensureMic() {
+        if (micStream) return true;
+        try {
+          micStream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+          });
+          const src = audioCtx.createMediaStreamSource(micStream);
+          analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 4096;
+          src.connect(analyser);             // analyser only: no playback, so no feedback loop
+          micBuf = new Float32Array(analyser.fftSize);
+          return true;
+        } catch (err) {
+          setStatus('I need the microphone to hear you: ' + err.message);
+          return false;
+        }
+      }
+
+      // Autocorrelation pitch detector. Returns Hz, or -1 when there's no clear voice.
+      function detectPitch() {
+        if (!analyser) return -1;
+        analyser.getFloatTimeDomainData(micBuf);
+        const sr = audioCtx.sampleRate;
+        const W = 1024;                                  // correlation window
+        const minLag = Math.floor(sr / 1000);            // highest pitch: 1 kHz
+        const maxLag = Math.floor(sr / 60);              // lowest pitch: 60 Hz
+        const N = micBuf.length;
+        const L = W + maxLag + 2;
+        if (N < L) return -1;
+        const off = N - L;
+
+        let e0 = 0;
+        for (let i = 0; i < W; i++) { const v = micBuf[off + i]; e0 += v * v; }
+        if (Math.sqrt(e0 / W) < 0.01) return -1;        // too quiet
+
+        const rs = new Float32Array(maxLag + 2);
+        let bestR = 0, bestLag = -1;
+        for (let lag = minLag - 1; lag <= maxLag + 1; lag++) {
+          let c = 0, e = 0;
+          for (let i = 0; i < W; i++) {
+            const b = micBuf[off + i + lag];
+            c += micBuf[off + i] * b;
+            e += b * b;
+          }
+          const r = c / Math.sqrt(e0 * e + 1e-12);
+          rs[lag] = r;
+          if (lag >= minLag && lag <= maxLag && r > bestR) { bestR = r; bestLag = lag; }
+        }
+        if (bestLag < 0 || bestR < 0.8) return -1;      // not periodic enough to be a voice
+
+        // Parabolic interpolation for sub-sample lag accuracy
+        const a = rs[bestLag - 1], b = rs[bestLag], c = rs[bestLag + 1];
+        const denom = a - 2 * b + c;
+        const shift = Math.abs(denom) > 1e-9 ? 0.5 * (a - c) / denom : 0;
+        return sr / (bestLag + shift);
+      }
+
+      // ----- Game flow ------------------------------------------------------
+      async function listen() {
+        ensureAudio();
+        await audioCtx.resume();
+        const src = audioCtx.createBufferSource();
+        src.buffer = buildChirp(round);
+        src.connect(audioCtx.destination);
+        startAt = audioCtx.currentTime + 0.05;
+        src.start(startAt);
+        trace = [];
+        roundPoints = 0;
+        mode = 'listening';
+        setStatus('Listen closely…');
+        updateButtons();
+        updateScores();
+      }
+
+      async function beginSing() {
+        ensureAudio();
+        await audioCtx.resume();
+        const ok = await ensureMic();
+        if (!ok) return;
+        trace = [];
+        sumAcc = 0;
+        roundPoints = 0;
+        countdownEnd = performance.now() + 3000;
+        mode = 'countdown';
+        setStatus('Get ready to sing the rising pitch…');
+        updateButtons();
+      }
+
+      function finishRound() {
+        mode = 'results';
+        const pct = Math.max(0, Math.min(1, sumAcc / T));
+        roundPoints = Math.round(pct * 1000);
+        totals.points += roundPoints;
+        totals.rounds += 1;
+        if (roundPoints > totals.best) {
+          totals.best = roundPoints;
+          saveBest(roundPoints);
+        }
+        const verdict =
+          pct >= 0.9 ? 'Gravitational-wave precision!' :
+          pct >= 0.7 ? 'Nice match!' :
+          pct >= 0.4 ? 'Getting there. Try again.' :
+                       'Keep singing. The chirp is hard!';
+        setStatus(`${Math.round(pct * 100)}% accuracy: ${verdict} You scored ${roundPoints} points.`);
+        el.hz.textContent = '—';
+        el.note.textContent = 'round over';
+        el.acc.textContent = '—';
+        el.verdict.textContent = '';
+        updateButtons();
+        updateScores();
+      }
+
+      function sample(t, dt) {
+        const p = detectPitch();
+        const tgt = targetFreq(t, round);
+        let acc = 0, pd = -1;
+        if (p > 0) {
+          const fold = el.octaves.checked;
+          // Bring the pitch into the target's octave (for display and, optionally, scoring)
+          pd = fold ? p / Math.pow(2, Math.round(Math.log2(p / tgt))) : p;
+          let cents = 1200 * Math.log2(pd / tgt);
+          acc = Math.max(0, 1 - Math.abs(cents) / TOL);
+        }
+        lastAcc = acc;
+        sumAcc += acc * dt;
+        trace.push({ t, pd, acc });
+
+        el.tgt.textContent = `${tgt.toFixed(0)} Hz`;
+        if (p > 0) {
+          el.hz.textContent = `${pd.toFixed(0)} Hz`;
+          el.note.textContent = noteOf(pd);
+        } else {
+          el.hz.textContent = '—';
+          el.note.textContent = 'no voice yet';
+        }
+        el.acc.textContent = `${Math.round(acc * 100)}%`;
+        el.verdict.textContent = acc >= 0.9 ? 'spot on!' : acc >= 0.7 ? 'close' : acc >= 0.4 ? 'warm' : p > 0 ? 'keep going' : '';
+      }
+
+      function noteOf(f) {
+        const m = 69 + 12 * Math.log2(f / 440);
+        const n = Math.round(m);
+        const cents = Math.round((m - n) * 100);
+        const name = NOTE_NAMES[((n % 12) + 12) % 12];
+        return `${name}${Math.floor(n / 12) - 1}  ${cents >= 0 ? '+' : ''}${cents}¢`;
+      }
+
+      // ----- UI helpers -----------------------------------------------------
+      function setStatus(text) { el.status.textContent = text; }
+
+      function showBig(text) {
+        if (el.big.textContent !== text) el.big.textContent = text;
+      }
+
+      function updateButtons() {
+        const map = {
+          idle:      ['▶ Listen to the chirp', false],
+          listening: ['Listening…', true],
+          ready:     ['🎤 Sing it!', false],
+          countdown: ['Get ready…', true],
+          singing:   ['Singing…', true],
+          results:   ['Next chirp ▶', false],
+        };
+        const [label, disabled] = map[mode];
+        el.primary.textContent = label;
+        el.primary.disabled = disabled;
+        el.replay.disabled = !(mode === 'ready' || mode === 'results');
+      }
+
+      function updateScores() {
+        el.roundPts.textContent = String(roundPoints);
+        el.total.textContent = String(totals.points);
+        el.best.textContent = String(totals.best);
+      }
+
+      el.primary.addEventListener('click', () => {
+        if (mode === 'idle' || mode === 'results') {
+          round = newRound();
+          listen();
+        } else if (mode === 'ready') {
+          beginSing();
+        }
+      });
+
+      el.replay.addEventListener('click', () => {
+        if (mode === 'ready' || mode === 'results') listen();
+      });
+
+      // ----- Drawing --------------------------------------------------------
+      function resize() {
+        const dpr = window.devicePixelRatio || 1;
+        const r = canvas.getBoundingClientRect();
+        canvas.width = Math.round(r.width * dpr);
+        canvas.height = Math.round(r.height * dpr);
+        g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      function draw(cursor) {
+        const W = canvas.clientWidth, H = canvas.clientHeight;
+        g.clearRect(0, 0, W, H);
+        g.fillStyle = '#111';
+        g.fillRect(0, 0, W, H);
+
+        if (!round) {
+          g.fillStyle = '#666';
+          g.font = '16px -apple-system, Segoe UI, sans-serif';
+          g.textAlign = 'center';
+          g.fillText('The chirp will appear here', W / 2, H / 2);
+          return;
+        }
+
+        const padL = 56, padR = 16, padT = 16, padB = 34;
+        const pw = W - padL - padR, ph = H - padT - padB;
+        const yMin = round.fLow * 0.8, yMax = round.fHigh * 1.2;
+        const X = (t) => padL + (t / T) * pw;
+        const Y = (f) => {
+          const y = padT + ph - (Math.log(f / yMin) / Math.log(yMax / yMin)) * ph;
+          return Math.max(padT, Math.min(padT + ph, y));
+        };
+
+        // Horizontal frequency grid (log-spaced)
+        g.font = '12px -apple-system, Segoe UI, sans-serif';
+        g.textAlign = 'right';
+        g.textBaseline = 'middle';
+        g.strokeStyle = '#262626';
+        g.fillStyle = '#777';
+        g.lineWidth = 1;
+        const ratio = round.fHigh / round.fLow;
+        for (let k = 0; k <= 4; k++) {
+          const f = round.fLow * Math.pow(ratio, k / 4);
+          const y = Y(f);
+          g.beginPath();
+          g.moveTo(padL, y);
+          g.lineTo(padL + pw, y);
+          g.stroke();
+          g.fillText(`${Math.round(f)} Hz`, padL - 8, y);
+        }
+
+        // Time ticks
+        g.textAlign = 'center';
+        g.textBaseline = 'top';
+        for (let s = 0; s <= T; s++) {
+          const x = X(s);
+          g.beginPath();
+          g.moveTo(x, padT);
+          g.lineTo(x, padT + ph);
+          g.stroke();
+          g.fillText(`${s}s`, x, padT + ph + 8);
+        }
+
+        // Target chirp curve
+        g.beginPath();
+        for (let i = 0; i <= 240; i++) {
+          const t = T * i / 240;
+          const x = X(t), y = Y(targetFreq(t, round));
+          if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
+        }
+        g.strokeStyle = '#7c6af7';
+        g.lineWidth = 3;
+        g.shadowColor = '#7c6af7';
+        g.shadowBlur = 14;
+        g.stroke();
+        g.shadowBlur = 0;
+
+        // The singer's trace, coloured by accuracy (green = on target, red = off)
+        for (const s of trace) {
+          if (s.pd <= 0) continue;
+          g.beginPath();
+          g.arc(X(s.t), Y(s.pd), 3.5, 0, Math.PI * 2);
+          g.fillStyle = `hsl(${Math.round(120 * s.acc)}, 85%, 58%)`;
+          g.fill();
+        }
+
+        // Playhead
+        if (cursor !== null) {
+          const x = X(cursor);
+          g.beginPath();
+          g.moveTo(x, padT);
+          g.lineTo(x, padT + ph);
+          g.strokeStyle = 'rgba(255,255,255,0.5)';
+          g.lineWidth = 1.5;
+          g.stroke();
+        }
+      }
+
+      // ----- Main loop ------------------------------------------------------
+      function tick(now) {
+        let cursor = null;
+
+        if (mode === 'listening') {
+          const t = audioCtx.currentTime - startAt;
+          cursor = Math.max(0, Math.min(T, t));
+          if (t >= T) {
+            mode = 'ready';
+            setStatus('Your turn. Press “Sing it!”, then match the rising pitch as closely as you can.');
+            updateButtons();
+          }
+        } else if (mode === 'countdown') {
+          const rem = countdownEnd - now;
+          if (rem > 0) {
+            showBig(String(Math.ceil(rem / 1000)));
+          } else {
+            mode = 'singing';
+            singStart = now;
+            lastNow = now;
+            showBig('SING');
+            setTimeout(() => { if (mode === 'singing') showBig(''); }, 700);
+            setStatus('Sing!');
+            updateButtons();
+          }
+        } else if (mode === 'singing') {
+          const t = (now - singStart) / 1000;
+          const dt = (now - lastNow) / 1000;
+          lastNow = now;
+          if (t >= T) {
+            showBig('');
+            finishRound();
+          } else {
+            cursor = t;
+            sample(t, dt);
+          }
+        }
+
+        draw(cursor);
+        requestAnimationFrame(tick);
+      }
+
+      // ----- Boot -----------------------------------------------------------
+      window.addEventListener('resize', resize);
+      resize();
+      updateButtons();
+      updateScores();
+      draw(null);
+      requestAnimationFrame(tick);
+    })();
+  </script>
+</body>
+</html>

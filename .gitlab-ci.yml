@@ -1,0 +1,13 @@
+# Publishes the static site to GitLab Pages.
+# The site is plain HTML/CSS/JS, so the job only copies files into public/.
+pages:
+  stage: deploy
+  image: alpine:latest
+  script:
+    - mkdir -p public
+    - cp index.html simulation.html chirp.html styles.css public/
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
